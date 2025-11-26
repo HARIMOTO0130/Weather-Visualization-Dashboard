@@ -1,0 +1,136 @@
+{% load static %}
+<!DOCTYPE html>
+
+<html lang="zh-CN">
+	<head>
+		<meta charset="utf-8" />
+	    <meta name="viewport" content="width=device-width,initial-scale=1,minimum-scale=1,maximum-scale=1,user-scalable=no" />
+	    <meta http-equiv="X-UA-Compatible" content="IE=edge, chrome=1" />
+		<title>2022年各省气象情况</title>
+		<link rel="stylesheet" href="{% static 'css/bootstrap.min.css' %}" />
+		<link rel="stylesheet" href="{% static 'css/app.css' %}" />
+		<!-- 确保echarts正确加载 -->
+		<script src="{% static 'js/echarts.min.js' %}"></script>
+		<script>console.log('ECharts loaded, version:', echarts.version)</script>
+		<!-- 调整加载顺序，确保依赖关系正确 -->
+		<script src="{% static 'js/d3.min.js' %}"></script>
+		<!-- 延迟加载china.js和wordcount插件，确保echarts完全初始化 -->
+		<script>
+		// 确保echarts已加载完成
+		window.onload = function() {
+			console.log('Window loaded, ECharts ready:', typeof echarts !== 'undefined');
+		};
+		</script>
+
+		
+	</head>
+	
+	<body class="bg06">
+		<header class="header">
+			<h3>2022年各省份气象情况</h3>
+		</header>
+		
+		<div class="wrapper">
+			<div class="container-fluid">
+				<div class="row fill-h">
+					<div class="col-lg-3 fill-h">
+						<div class="xpanel-wrapper xpanel-wrapper-1-2">
+							<div class="xpanel">
+								<div class="listbox list" id="list_box"></div>
+								<div class="fill-h1" id="id1"></div>
+							</div>
+						</div>
+						<div class="xpanel-wrapper xpanel-wrapper-1-2">
+							<div class="xpanel">
+								<div class="fill-h" id="id2"></div>
+							</div>
+						</div>
+					</div>
+					<div class="col-lg-6 fill-h">
+						<div class="xpanel-wrapper xpanel-wrapper-2-1">
+							<div class="xpanel no-padding no-bg">
+								<div class="fill-h" id="id3"></div>
+							</div>
+						</div>	
+						<div class="xpanel-wrapper xpanel-wrapper-2-2">
+							<div class="xpanel no-padding no-bg">
+								<div class="fill-h" id="time_line"></div>
+							</div>
+						</div>
+						
+					</div>
+					<div class="col-lg-3 fill-h">
+						<div class="xpanel-wrapper xpanel-wrapper-1-2">
+							<div class="xpanel">
+								<div class="fill-h" id="id4"></div>
+							</div>
+						</div>
+						<div class="xpanel-wrapper xpanel-wrapper-1-3">
+							<div class="xpanel">
+								<div class="fill-h" id="id5"></div>
+							</div>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+		<script>
+			var text_style={color: '#00C6FB',fontSize: 14,}
+			var month_index=1;
+			var time_interval=2000;
+			var map_data1={{ map_data1 }};
+			var map_data2={{ map_data2 }};
+			var provinces={{ provinces }};
+			var line_data={{ line_data }};
+			var tree_data={{ tree_data }};
+			var word_data={{ word_data }};
+			var bar_data={{ bar_data }};
+		</script>
+
+		<!-- 动态加载依赖脚本，确保echarts完全初始化 -->
+		<script>
+		// 动态加载脚本函数
+		function loadScript(url, callback) {
+			var script = document.createElement('script');
+			script.src = url;
+			script.onload = callback;
+			document.body.appendChild(script);
+		}
+		
+		// 确保所有核心脚本加载完成后按顺序初始化
+		window.onload = function() {
+			// 检查echarts是否已加载
+			if (typeof echarts !== 'undefined') {
+				console.log('开始加载依赖脚本...');
+				
+				// 按顺序加载脚本，确保依赖关系正确
+				loadScript("{% static 'js/china.js' %}", function() {
+					console.log('china.js loaded');
+					loadScript("{% static 'js/wordcount.min.js' %}", function() {
+						console.log('wordcount.min.js loaded');
+						loadScript("{% static 'js/map_chart.js' %}", function() {
+							console.log('map_chart.js loaded');
+							loadScript("{% static 'js/timeline.js' %}", function() {
+								loadScript("{% static 'js/line_chart.js' %}", function() {
+									loadScript("{% static 'js/tree_chart.js' %}", function() {
+										loadScript("{% static 'js/word_chart.js' %}", function() {
+											loadScript("{% static 'js/bar_chart.js' %}", function() {
+												loadScript("{% static 'js/total_control.js' %}", function() {
+													console.log('所有脚本加载完成');
+												});
+											});
+										});
+									});
+								});
+							});
+						});
+					});
+				});
+			} else {
+				console.error('ECharts未正确加载！');
+			}
+		};
+		</script>
+
+	</body>
+</html>

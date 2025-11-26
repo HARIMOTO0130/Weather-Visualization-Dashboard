@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Database
+db.sqlite3
+*.sqlite
+
+# Logs
+*.log
+
+# Build files
+*.egg-info/
+build/
+dist/
+
+# Windows
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Mac
+.DS_Store
+
+# Testing
+.coverage
+.pytest_cache/
+test-results/
+
+# Misc
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local

@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>气象数据分析系统</title>
+    <!-- 正确引入ECharts库 -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .chart-container {
+            height: 500px;
+            margin: 20px 0;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .title {
+            text-align: center;
+            color: #333;
+        }
+        .month-selector {
+            text-align: center;
+            margin: 20px 0;
+        }
+        select {
+            padding: 8px 16px;
+            font-size: 16px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">中国气象数据分析系统</h1>
+        
+        <div class="month-selector">
+            <label for="month">选择月份：</label>
+            <select id="month">
+                <option value="1">1月</option>
+                <option value="2">2月</option>
+                <option value="3">3月</option>
+                <option value="4">4月</option>
+                <option value="5">5月</option>
+                <option value="6">6月</option>
+                <option value="7">7月</option>
+                <option value="8">8月</option>
+                <option value="9">9月</option>
+                <option value="10">10月</option>
+                <option value="11">11月</option>
+                <option value="12">12月</option>
+            </select>
+        </div>
+        
+        <!-- 气温地图 -->
+        <h2>中国气温分布图</h2>
+        <div id="tempMap" class="chart-container"></div>
+        
+        <!-- 省份温度趋势图 -->
+        <h2>省份温度趋势图</h2>
+        <div id="tempTrend" class="chart-container"></div>
+        
+        <!-- 气压分布图 -->
+        <h2>气压分布图</h2>
+        <div id="pressureMap" class="chart-container"></div>
+    </div>
+
+    <script>
+        // 初始化图表
+        var tempMapChart = echarts.init(document.getElementById('tempMap'));
+        var tempTrendChart = echarts.init(document.getElementById('tempTrend'));
+        var pressureMapChart = echarts.init(document.getElementById('pressureMap'));
+        
+        // 等待地图数据加载完成
+        setTimeout(function() {
+            if (typeof echarts !== 'undefined' && typeof chinaMapData !== 'undefined') {
+                echarts.registerMap('china', chinaMapData);
+                console.log('地图数据加载成功');
+            } else {
+                console.log('使用内置地图数据');
+                // 直接使用默认地图
+                tempMapChart.setOption({
+                    title: {
+                        text: '中国气温分布图',
+                        left: 'center'
+                    },
+                    tooltip: {
+                        trigger: 'item'
+                    },
+                    series: [{
+                        name: '气温',
+                        type: 'map',
+                        map: 'china',
+                        data: []
+                    }]
+                });
+            }
+        }, 500);
+        
+        // 获取当前选择的月份
+        function getSelectedMonth() {
+            return document.getElementById('month').value;
+        }
+        
+        // 加载数据并更新图表
+        function loadData() {
+            var month = getSelectedMonth();
+            console.log('加载' + month + '月数据');
+            
+            // 从后端API获取数据
+            $.get('/get_weather_data/?month=' + month, function(response) {
+                console.log('获取到数据:', response);
+                var tempData = response.data;
+                
+                // 更新气温地图
+                tempMapChart.setOption({
+                    title: {
+                        text: month + '月气温分布图',
+                        left: 'center'
+                    },
+                    tooltip: {
+                        trigger: 'item',
+                        formatter: function(params) {
+                            return params.name + ': ' + params.value.toFixed(1) + '°C';
+                        }
+                    },
+                    visualMap: {
+                        min: -20,
+                        max: 40,
+                        text: ['高', '低'],
+                        realtime: false,
+                        calculable: true,
+                        inRange: {
+                            color: ['blue', 'white', 'red']
+                        }
+                    },
+                    series: [{
+                        name: '气温',
+                        type: 'map',
+                        map: 'china',
+                        roam: true,
+                        data: tempData,
+                        emphasis: {
+                            label: {
+                                show: true
+                            }
+                        }
+                    }]
+                });
+                
+                // 提取省份名称和温度值
+                var provinces = [];
+                var temps = [];
+                tempData.forEach(function(item) {
+                    provinces.push(item.name);
+                    temps.push(item.value);
+                });
+                
+                // 更新温度趋势图
+                tempTrendChart.setOption({
+                    title: {
+                        text: '主要省份' + month + '月平均气温',
+                        left: 'center'
+                    },
+                    tooltip: {
+                        trigger: 'axis'
+                    },
+                    xAxis: {
+                        type: 'category',
+                        data: provinces
+                    },
+                    yAxis: {
+                        type: 'value',
+                        name: '温度 (°C)'
+                    },
+                    series: [{
+                        data: temps,
+                        type: 'bar'
+                    }]
+                });
+            }).fail(function(error) {
+                console.error('获取数据失败:', error);
+                // 如果API调用失败，使用默认数据
+                var defaultData = [
+                    {name: '北京', value: 15},
+                    {name: '上海', value: 20},
+                    {name: '广东', value: 25},
+                    {name: '四川', value: 18},
+                    {name: '黑龙江', value: 0}
+                ];
+                updateChartsWithDefaultData(defaultData, month);
+            });
+        }
+        
+        // 使用默认数据更新图表
+        function updateChartsWithDefaultData(data, month) {
+            tempMapChart.setOption({
+                title: {
+                    text: month + '月气温分布图（默认数据）',
+                    left: 'center'
+                },
+                tooltip: {
+                    trigger: 'item',
+                    formatter: function(params) {
+                        return params.name + ': ' + params.value + '°C';
+                    }
+                },
+                visualMap: {
+                    min: -20,
+                    max: 40,
+                    text: ['高', '低'],
+                    calculable: true,
+                    inRange: {
+                        color: ['blue', 'white', 'red']
+                    }
+                },
+                series: [{
+                    name: '气温',
+                    type: 'map',
+                    map: 'china',
+                    data: data
+                }]
+            });
+        }
+        
+        // 月份变化时重新加载数据
+        document.getElementById('month').addEventListener('change', loadData);
+        
+        // 初始加载数据
+        setTimeout(loadData, 1000);
+        
+        // 窗口大小改变时重置图表大小
+        window.addEventListener('resize', function() {
+            tempMapChart.resize();
+            tempTrendChart.resize();
+            pressureMapChart.resize();
+        });
+    </script>
+</body>
+</html>

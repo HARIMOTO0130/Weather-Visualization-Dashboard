@@ -3,6 +3,9 @@
 ## 项目概述
 本项目是一个基于时间序列模型的NCDC气象数据分析系统，包含前端Django可视化界面和后端MapReduce数据处理功能。
 
+![a7474b6312d8bcf5f6e78cf20ddc1241](https://github.com/user-attachments/assets/c9779668-0222-4b33-a08b-0c53c1dbb8d0)
+
+
 ## 运行步骤
 
 ### 1. 准备工作

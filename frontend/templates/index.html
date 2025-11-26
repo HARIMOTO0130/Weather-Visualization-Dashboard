@@ -1,0 +1,1935 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2022年各省气象情况</title>
+    <!-- 引入CSS文件 -->
+    <link rel="stylesheet" href="../static/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="../static/css/app.css" />
+    <!-- 引入JS文件 -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <script src="../static/js/china.js"></script>
+    <script src="../static/js/map_chart.js"></script>
+    <script src="../static/js/timeline.js"></script>
+    <script src="../static/js/total_control.js"></script>
+</head>
+<body>
+    <!-- 全局变量定义 -->
+    <script>
+        var text_style = {color: '#00C6FB', fontSize: 14};
+        var month_index = 1;
+        var time_interval = 5000;
+    </script>
+    <!-- 顶部标题栏 -->
+    <div class="header">
+        <div class="header-title">2022年各省气象情况</div>
+
+    </div>
+
+    <!-- 主要内容区域 -->
+    <div class="dashboard-container">
+        <!-- 第一行 -->
+        <div class="row">
+            <!-- 省份温度图表 -->
+            <div class="chart-panel" id="province-temp-panel">
+                <div class="chart-title">2022年上半年平均气温和预测情况</div>
+                <div id="province_temp" class="chart-container"></div>
+            </div>
+            
+            <!-- 中国地图 -->
+            <div class="chart-panel" id="china-map-panel">
+                <div class="chart-title">2022年各省1月份平均温度和风速概况</div>
+                <div id="china_map" class="chart-container"></div>
+                <!-- 时间线容器 -->
+                <div id="time_line" style="width: 100%; height: 60px; margin-top: 20px;"></div>
+            </div>
+            
+            <!-- 城市降水量排名 -->
+            <div class="chart-panel" id="precipitation-panel">
+                <div class="chart-title">2022年各城市1月份降水量TOP10</div>
+                <div id="city_precipitation_top10" class="chart-container"></div>
+            </div>
+        </div>
+        
+        <!-- 第二行 -->
+        <div class="row">
+            <!-- 省份气压图 -->
+            <div class="chart-panel" id="province-pressure-panel">
+                <div class="chart-title">2022年各省1月份气压情况</div>
+                <div id="province_pressure" class="chart-container"></div>
+            </div>
+            
+            <!-- 城市温度词云 -->
+            <div class="chart-panel" id="city-temp-panel">
+                <div class="chart-title">2022年各城市1月份气温词云</div>
+                <div id="city_temp" class="chart-container"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 页面加载完成后初始化图表
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('DOM加载完成，检查echarts...');
+            
+            // 等待echarts加载完成
+            if (window.echarts) {
+                console.log('echarts已加载');
+                // 初始化图表前先加载后端数据
+                loadDataAndInitCharts();
+                
+                // 为中国地图面板添加滚动优化
+                setTimeout(() => {
+                    const chinaMapPanel = document.getElementById('china-map-panel');
+                    const chinaMap = document.getElementById('china_map');
+                    
+                    if (chinaMapPanel && chinaMap) {
+                        // 确保地图容器可以正常滚动
+                        chinaMapPanel.style.overflowY = 'auto';
+                        chinaMapPanel.style.overflowX = 'auto';
+                        
+                        // 如果地图已初始化，修改ECharts配置以允许滚动
+                        const mapChart = echarts.getInstanceByDom(chinaMap);
+                        if (mapChart) {
+                            // 禁用地图的拖拽漫游，避免与滚动冲突
+                            mapChart.setOption({
+                                series: [
+                                    {
+                                        roam: false
+                                    },
+                                    {
+                                        roam: false
+                                    }
+                                ]
+                            });
+                            
+                            // 修改ECharts的事件处理，确保滚动优先
+                            const zr = mapChart.getZr();
+                            zr.on('wheel', function(params) {
+                                // 让浏览器处理滚动事件
+                                return true;
+                            });
+                        }
+                    }
+                }, 1000); // 延迟执行，确保图表已初始化
+            } else {
+                console.error('echarts未加载，请检查引入路径');
+            }
+            
+            // 城市选择事件处理 - 下拉列表已移除
+        });
+        
+        // 加载所有数据并初始化图表
+        async function loadDataAndInitCharts() {
+            try {
+                // 并发加载所有数据
+                const [provinceTempData, chinaMapData, cityTempData, provincePressureData, cityPrecipitationData] = await Promise.all([
+                    loadProvinceTempData('上海'),
+                    loadChinaMapData(),
+                    loadCityTempData(),
+                    loadProvincePressureData(),
+                    loadCityPrecipitationData()
+                ]);
+                
+                // 使用加载的数据初始化图表
+                initProvinceTempChart('上海', provinceTempData);
+                initChinaMapChart(chinaMapData);
+                initCityTempChart(cityTempData);
+                initProvincePressureChart(provincePressureData);
+                initCityPrecipitationChart(cityPrecipitationData);
+                
+            } catch (error) {
+                console.error('加载数据失败:', error);
+                // 失败时使用模拟数据
+                console.log('使用模拟数据初始化图表');
+                initProvinceTempChart();
+                initChinaMapChart();
+                initCityTempChart();
+                initProvincePressureChart();
+                initCityPrecipitationChart();
+            }
+        }
+        
+        // 从后端API加载省份温度数据
+        async function loadProvinceTempData(city) {
+            try {
+                // 调用后端API，获取省份温度数据
+                const response = await fetch(`http://localhost:8000/api/weather/${city}/temperature`);
+                if (!response.ok) {
+                    throw new Error('获取省份温度数据失败');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error(`加载${city}温度数据失败:`, error);
+                // 返回null，使用模拟数据
+                return null;
+            }
+        }
+        
+        // 从后端API加载中国地图数据
+        async function loadChinaMapData() {
+            try {
+                const response = await fetch('http://localhost:8000/api/weather/map');
+                if (!response.ok) {
+                    throw new Error('获取中国地图数据失败');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('加载中国地图数据失败:', error);
+                return null;
+            }
+        }
+        
+        // 从后端API加载城市温度数据
+        async function loadCityTempData() {
+            try {
+                const response = await fetch('http://localhost:8000/api/weather/cities/temperature');
+                if (!response.ok) {
+                    throw new Error('获取城市温度数据失败');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('加载城市温度数据失败:', error);
+                return null;
+            }
+        }
+        
+        // 从后端API加载省份气压数据
+        async function loadProvincePressureData() {
+            try {
+                const response = await fetch('http://localhost:8000/api/weather/provinces/pressure');
+                if (!response.ok) {
+                    throw new Error('获取省份气压数据失败');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('加载省份气压数据失败:', error);
+                return null;
+            }
+        }
+        
+        // 从后端API加载城市降水量数据
+        async function loadCityPrecipitationData() {
+            try {
+                const response = await fetch('http://localhost:8000/api/weather/cities/precipitation');
+                if (!response.ok) {
+                    throw new Error('获取城市降水量数据失败');
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('加载城市降水量数据失败:', error);
+                return null;
+            }
+        }
+        
+        // 添加全局性能监控函数
+        function logPerformance(message) {
+            console.log(`[性能测试] ${new Date().toISOString()}: ${message}`);
+        }
+        
+        // 初始化省份温度图表
+        function initProvinceTempChart(city = '上海', data = null) {
+            const initStartTime = performance.now();
+            logPerformance(`开始初始化省份温度图表，城市: ${city}`);
+            
+            const chartPanel = document.getElementById('province-temp-panel');
+            const chartDom = document.getElementById('province_temp');
+            const myChart = echarts.init(chartDom);
+            
+            // 拖动相关性能监控变量
+            let dragStartTime = 0;
+            let dragEndTime = 0;
+            let dragMoveCount = 0;
+            
+            // 调整大小相关性能监控变量
+            let resizeStartTime = 0;
+            let resizeEndTime = 0;
+            let resizeMoveCount = 0;
+            
+            // 拖动相关变量初始化
+            let isDragging = false;
+            let startX = 0;
+            let startY = 0;
+            let initialLeft = 0;
+            let initialTop = 0;
+            let lastMoveTime = 0;
+            let velocityX = 0;
+            let velocityY = 0;
+            let momentumFrameId = null;
+            
+            // 设置面板样式，使其可拖动
+            chartPanel.style.position = 'relative';
+            chartPanel.style.cursor = 'move';
+            chartPanel.style.transition = 'all 0.2s ease'; // 添加过渡效果
+            chartPanel.style.border = '1px solid transparent'; // 初始透明边框
+            
+            // 动画配置
+            const animationConfig = {
+                momentumDecay: 0.92,
+                minVelocity: 0.5,
+                friction: 0.1,
+                frameDuration: 16 // 约60fps
+            };
+            
+            // 开始拖动
+            function startDrag(e) {
+                e.preventDefault();
+                isDragging = true;
+                startX = e.clientX;
+                startY = e.clientY;
+                
+                // 记录拖动开始时间和重置计数
+                dragStartTime = performance.now();
+                dragMoveCount = 0;
+                logPerformance('开始拖动，启动时间: ' + dragStartTime);
+                
+                // 获取当前位置
+                const computedStyle = window.getComputedStyle(chartPanel);
+                initialLeft = parseFloat(computedStyle.left) || 0;
+                initialTop = parseFloat(computedStyle.top) || 0;
+                
+                lastMoveTime = Date.now();
+                
+                // 添加事件监听
+                document.addEventListener('mousemove', drag);
+                document.addEventListener('mouseup', endDrag);
+                document.addEventListener('mouseleave', endDrag);
+                
+                // 拖动时的视觉反馈 - 增强效果
+                chartPanel.style.opacity = '0.8';
+                chartPanel.style.boxShadow = '0 8px 30px rgba(0, 198, 251, 0.5)';
+                chartPanel.style.borderColor = 'rgba(0, 198, 251, 1)';
+                chartPanel.style.borderWidth = '2px';
+                chartPanel.style.transition = 'none'; // 拖动过程中禁用过渡以获得平滑效果
+            }
+            
+            // 拖动中
+            function drag(e) {
+                if (!isDragging) return;
+                
+                // 记录拖动帧数
+                dragMoveCount++;
+                if (dragMoveCount % 10 === 0) { // 每10帧记录一次
+                    logPerformance('拖动移动中，已处理帧数: ' + dragMoveCount);
+                }
+                
+                const now = Date.now();
+                const deltaTime = now - lastMoveTime;
+                const deltaX = e.clientX - startX;
+                const deltaY = e.clientY - startY;
+                
+                // 计算速度（用于惯性效果）
+                if (deltaTime > 0) {
+                    velocityX = deltaX / deltaTime * 16; // 标准化到16ms帧
+                    velocityY = deltaY / deltaTime * 16;
+                }
+                
+                // 计算新位置
+                const newLeft = initialLeft + deltaX;
+                const newTop = initialTop + deltaY;
+                
+                // 边界检查（保持在可视区域内）
+                const boundedLeft = Math.max(0, Math.min(window.innerWidth - chartPanel.offsetWidth, newLeft));
+                const boundedTop = Math.max(0, Math.min(window.innerHeight - chartPanel.offsetHeight, newTop));
+                
+                // 更新位置
+                chartPanel.style.left = boundedLeft + 'px';
+                chartPanel.style.top = boundedTop + 'px';
+                
+                lastMoveTime = now;
+            }
+            
+            // 确保组件在视口内的辅助函数
+            function ensureComponentInView() {
+                const panelWidth = chartPanel.offsetWidth;
+                const panelHeight = chartPanel.offsetHeight;
+                const windowWidth = window.innerWidth;
+                const windowHeight = window.innerHeight;
+                
+                let currentLeft = parseFloat(chartPanel.style.left) || 0;
+                let currentTop = parseFloat(chartPanel.style.top) || 0;
+                
+                // 边界检查和调整
+                currentLeft = Math.max(0, Math.min(windowWidth - panelWidth, currentLeft));
+                currentTop = Math.max(0, Math.min(windowHeight - panelHeight, currentTop));
+                
+                // 更新位置
+                chartPanel.style.left = currentLeft + 'px';
+                chartPanel.style.top = currentTop + 'px';
+            }
+            
+            // 窗口大小变化处理函数
+            function handleResize() {
+                const resizeStartTime = performance.now();
+                logPerformance('开始处理窗口大小变化');
+                
+                // 调整图表大小
+                myChart.resize();
+                
+                // 确保组件在视口内
+                ensureComponentInView();
+                
+                // 更新最小尺寸限制（根据窗口大小动态调整）
+                updateMinSizeLimits();
+                
+                const resizeDuration = performance.now() - resizeStartTime;
+                logPerformance(`窗口大小变化处理完成，耗时: ${resizeDuration.toFixed(2)}ms`);
+            }
+            
+            // 更新最小尺寸限制
+            function updateMinSizeLimits() {
+                // 根据窗口大小动态调整最小尺寸，确保在小屏幕上也能正常使用
+                const windowWidth = window.innerWidth;
+                const windowHeight = window.innerHeight;
+                
+                // 最小宽度不小于窗口的30%且不小于200px
+                const minWidth = Math.max(200, windowWidth * 0.3);
+                // 最小高度不小于窗口的20%且不小于150px
+                const minHeight = Math.max(150, windowHeight * 0.2);
+                
+                // 检查当前尺寸是否小于新的最小尺寸限制
+                const currentWidth = chartPanel.offsetWidth;
+                const currentHeight = chartPanel.offsetHeight;
+                
+                if (currentWidth < minWidth || currentHeight < minHeight) {
+                    chartPanel.style.width = Math.max(currentWidth, minWidth) + 'px';
+                    chartPanel.style.height = Math.max(currentHeight, minHeight) + 'px';
+                    // 调整图表大小
+                    chartDom.style.width = '100%';
+                    chartDom.style.height = 'calc(100% - 30px)';
+                    myChart.resize();
+                }
+                
+                // 更新常量（注意：JavaScript中const不能直接修改，这里我们需要修改相关逻辑）
+                // 由于MIN_WIDTH和MIN_HEIGHT是常量，我们需要在resize函数中使用动态计算的值
+            }
+            
+            // 添加窗口大小变化监听
+            window.addEventListener('resize', handleResize);
+            
+            // 结束拖动
+            function endDrag() {
+                if (!isDragging) return;
+                isDragging = false;
+                
+                // 记录拖动结束时间并计算性能
+                dragEndTime = performance.now();
+                const dragDuration = dragEndTime - dragStartTime;
+                logPerformance(`结束拖动，总时长: ${dragDuration.toFixed(2)}ms, 总帧数: ${dragMoveCount}`);
+                
+                // 移除事件监听
+                document.removeEventListener('mousemove', drag);
+                document.removeEventListener('mouseup', endDrag);
+                document.removeEventListener('mouseleave', endDrag);
+                
+                // 恢复视觉样式
+                chartPanel.style.opacity = '1';
+                chartPanel.style.boxShadow = '';
+                chartPanel.style.borderColor = 'transparent';
+                chartPanel.style.borderWidth = '1px';
+                chartPanel.style.transition = 'all 0.2s ease'; // 恢复过渡效果
+                
+                // 应用惯性效果
+                applyMomentum();
+            }
+            
+            // 惯性滚动效果
+            function applyMomentum() {
+                if (Math.abs(velocityX) < animationConfig.minVelocity && 
+                    Math.abs(velocityY) < animationConfig.minVelocity) {
+                    return;
+                }
+                
+                // 应用衰减
+                velocityX *= animationConfig.momentumDecay;
+                velocityY *= animationConfig.momentumDecay;
+                
+                // 获取当前位置
+                const currentLeft = parseFloat(chartPanel.style.left) || 0;
+                const currentTop = parseFloat(chartPanel.style.top) || 0;
+                
+                // 计算新位置
+                let newLeft = currentLeft + velocityX;
+                let newTop = currentTop + velocityY;
+                
+                // 边界检查
+                newLeft = Math.max(0, Math.min(window.innerWidth - chartPanel.offsetWidth, newLeft));
+                newTop = Math.max(0, Math.min(window.innerHeight - chartPanel.offsetHeight, newTop));
+                
+                // 检查是否到达边界，如果到达则停止惯性
+                const hitHorizontalBoundary = newLeft === 0 || newLeft === window.innerWidth - chartPanel.offsetWidth;
+                const hitVerticalBoundary = newTop === 0 || newTop === window.innerHeight - chartPanel.offsetHeight;
+                
+                if (hitHorizontalBoundary) velocityX = 0;
+                if (hitVerticalBoundary) velocityY = 0;
+                
+                // 更新位置
+                chartPanel.style.left = newLeft + 'px';
+                chartPanel.style.top = newTop + 'px';
+                
+                // 继续下一帧
+                if (Math.abs(velocityX) >= animationConfig.minVelocity || 
+                    Math.abs(velocityY) >= animationConfig.minVelocity) {
+                    momentumFrameId = requestAnimationFrame(applyMomentum);
+                }
+            }
+            
+            // 注册拖动事件监听器
+            chartPanel.addEventListener('mousedown', startDrag);
+            
+            // 添加悬停效果
+            chartPanel.addEventListener('mouseenter', () => {
+                if (!isDragging && !isResizing) {
+                    chartPanel.style.borderColor = 'rgba(0, 198, 251, 0.7)';
+                    chartPanel.style.boxShadow = '0 4px 15px rgba(0, 198, 251, 0.3)';
+                }
+            });
+            
+            chartPanel.addEventListener('mouseleave', () => {
+                if (!isDragging && !isResizing) {
+                    chartPanel.style.borderColor = 'transparent';
+                    chartPanel.style.boxShadow = '';
+                }
+            });
+            
+            // 清理函数，防止内存泄漏
+            function cleanup() {
+                if (momentumFrameId) {
+                    cancelAnimationFrame(momentumFrameId);
+                }
+                chartPanel.removeEventListener('mousedown', startDrag);
+                document.removeEventListener('mousemove', drag);
+                document.removeEventListener('mouseup', endDrag);
+                document.removeEventListener('mouseleave', endDrag);
+                
+                // 移除窗口大小变化监听
+                window.removeEventListener('resize', handleResize);
+                
+                // 移除悬停事件监听
+                chartPanel.removeEventListener('mouseenter', null);
+                chartPanel.removeEventListener('mouseleave', null);
+            }
+            
+            // 保存清理函数，以便需要时调用
+            myChart.cleanup = cleanup;
+            
+            // 实现组件大小调整功能
+            function initResizeHandles() {
+                // 创建调整大小的句柄
+                const resizeDirections = [
+                    { name: 'se', cursor: 'se-resize', styles: { bottom: '0px', right: '0px' } }, // 右下角
+                    { name: 'e', cursor: 'e-resize', styles: { top: '50%', right: '0px', transform: 'translateY(-50%)' } }, // 右侧
+                    { name: 's', cursor: 's-resize', styles: { bottom: '0px', left: '50%', transform: 'translateX(-50%)' } }, // 底部
+                    { name: 'ne', cursor: 'ne-resize', styles: { top: '0px', right: '0px' } }, // 右上角
+                    { name: 'nw', cursor: 'nw-resize', styles: { top: '0px', left: '0px' } }, // 左上角
+                    { name: 'w', cursor: 'w-resize', styles: { top: '50%', left: '0px', transform: 'translateY(-50%)' } }, // 左侧
+                    { name: 'sw', cursor: 'sw-resize', styles: { bottom: '0px', left: '0px' } }, // 左下角
+                    { name: 'n', cursor: 'n-resize', styles: { top: '0px', left: '50%', transform: 'translateX(-50%)' } }  // 顶部
+                ];
+                
+                // 创建句柄元素并添加到面板中
+                    const resizeHandles = {};
+                    
+                    // 添加高亮边界效果
+                    function highlightResizeEdges(direction) {
+                        // 为不同方向添加不同的高亮效果
+                        if (direction.includes('n')) {
+                            chartPanel.style.borderTopColor = 'rgba(0, 198, 251, 1)';
+                            chartPanel.style.borderTopWidth = '2px';
+                        }
+                        if (direction.includes('s')) {
+                            chartPanel.style.borderBottomColor = 'rgba(0, 198, 251, 1)';
+                            chartPanel.style.borderBottomWidth = '2px';
+                        }
+                        if (direction.includes('e')) {
+                            chartPanel.style.borderRightColor = 'rgba(0, 198, 251, 1)';
+                            chartPanel.style.borderRightWidth = '2px';
+                        }
+                        if (direction.includes('w')) {
+                            chartPanel.style.borderLeftColor = 'rgba(0, 198, 251, 1)';
+                            chartPanel.style.borderLeftWidth = '2px';
+                        }
+                    }
+                    
+                    // 重置边界高亮
+                    function resetResizeEdges() {
+                        chartPanel.style.borderColor = isDragging ? 'rgba(0, 198, 251, 1)' : 'rgba(0, 198, 251, 0.7)';
+                        chartPanel.style.borderWidth = '1px';
+                    }
+                    
+                    resizeDirections.forEach(dir => {
+                    const handle = document.createElement('div');
+                    handle.className = 'resize-handle resize-handle-' + dir.name;
+                    handle.style.cssText = `
+                        position: absolute;
+                        width: 12px;
+                        height: 12px;
+                        background-color: rgba(0, 198, 251, 0.7);
+                        border: 1px solid #ffffff;
+                        border-radius: 3px;
+                        ${Object.entries(dir.styles).map(([prop, val]) => `${prop}: ${val};`).join(' ')}
+                        cursor: ${dir.cursor};
+                        z-index: 1000;
+                        opacity: 0;
+                        transition: opacity 0.2s ease;
+                        user-select: none;
+                        box-sizing: border-box;
+                    `;
+                    
+                    chartPanel.appendChild(handle);
+                    resizeHandles[dir.name] = handle;
+                    
+                    // 鼠标悬停时显示调整句柄
+                    chartPanel.addEventListener('mouseover', () => {
+                        Object.values(resizeHandles).forEach(h => {
+                            h.style.opacity = '1';
+                        });
+                    });
+                    
+                    chartPanel.addEventListener('mouseleave', () => {
+                        // 如果不在调整大小状态，则隐藏句柄
+                        if (!isResizing) {
+                            Object.values(resizeHandles).forEach(h => {
+                                h.style.opacity = '0';
+                            });
+                        }
+                    });
+                    
+                    // 添加调整大小的事件监听
+                    handle.addEventListener('mousedown', (e) => {
+                        e.preventDefault();
+                        e.stopPropagation(); // 阻止触发拖动
+                        startResize(e, dir.name);
+                    });
+                    
+                    // 句柄悬停效果
+                    handle.addEventListener('mouseenter', () => {
+                        highlightResizeEdges(dir.name);
+                        // 句柄放大效果
+                        handle.style.transform = 'scale(1.2)';
+                        handle.style.background = 'rgba(0, 198, 251, 1)';
+                    });
+                    
+                    handle.addEventListener('mouseleave', () => {
+                        if (!isResizing) {
+                            resetResizeEdges();
+                            // 恢复句柄大小
+                            handle.style.transform = 'scale(1)';
+                            handle.style.background = 'rgba(0, 198, 251, 0.7)';
+                        }
+                    });
+                });
+                
+                return resizeHandles;
+            }
+            
+            // 调整大小相关变量
+            let isResizing = false;
+            let resizeDirection = null;
+            let startWidth = 0;
+            let startHeight = 0;
+            // 重用已声明的startX和startY变量
+            let resizeHandles = null;
+            
+            // 定义最小尺寸限制
+            const MIN_WIDTH = 300;
+            const MIN_HEIGHT = 200;
+            
+            // 开始调整大小
+            function startResize(e, direction) {
+                isResizing = true;
+                resizeDirection = direction;
+                startX = e.clientX;
+                startY = e.clientY;
+                
+                // 获取当前尺寸
+                startWidth = chartPanel.offsetWidth;
+                startHeight = chartPanel.offsetHeight;
+                
+                // 阻止默认行为和文本选择
+                e.preventDefault();
+                
+                // 记录调整大小开始时间和重置计数
+                resizeStartTime = performance.now();
+                resizeMoveCount = 0;
+                logPerformance(`开始调整大小，方向: ${direction}, 启动时间: ${resizeStartTime}`);
+                
+                // 添加事件监听
+                document.addEventListener('mousemove', resize);
+                document.addEventListener('mouseup', stopResize);
+                document.addEventListener('mouseleave', stopResize);
+                
+                // 添加调整大小时的视觉反馈
+                    chartPanel.style.boxShadow = '0 8px 30px rgba(0, 198, 251, 0.5)';
+                    chartPanel.style.borderColor = 'rgba(0, 198, 251, 1)';
+                    chartPanel.style.borderWidth = '2px';
+                    chartPanel.style.transition = 'none'; // 调整大小过程中禁用过渡以获得平滑效果
+                
+                // 显示所有句柄
+                if (resizeHandles) {
+                    Object.values(resizeHandles).forEach(h => {
+                        h.style.opacity = '1';
+                    });
+                }
+            }
+            
+            // 调整大小中
+            function resize(e) {
+                if (!isResizing) return;
+                
+                // 记录调整大小帧数
+                resizeMoveCount++;
+                if (resizeMoveCount % 10 === 0) { // 每10帧记录一次
+                    logPerformance('调整大小中，已处理帧数: ' + resizeMoveCount);
+                }
+                
+                // 计算变化量
+                const deltaX = e.clientX - startX;
+                const deltaY = e.clientY - startY;
+                
+                let newWidth = startWidth;
+                let newHeight = startHeight;
+                let newLeft = parseFloat(chartPanel.style.left) || 0;
+                let newTop = parseFloat(chartPanel.style.top) || 0;
+                
+                // 动态计算最小尺寸限制
+                const windowWidth = window.innerWidth;
+                const windowHeight = window.innerHeight;
+                const minWidth = Math.max(200, windowWidth * 0.3);
+                const minHeight = Math.max(150, windowHeight * 0.2);
+                
+                // 根据调整方向计算新的尺寸和位置
+                if (resizeDirection.includes('e')) {
+                    newWidth = Math.max(minWidth, startWidth + deltaX);
+                } else if (resizeDirection.includes('w')) {
+                    newWidth = Math.max(minWidth, startWidth - deltaX);
+                    newLeft = Math.min(windowWidth - minWidth, newLeft + deltaX);
+                }
+                
+                if (resizeDirection.includes('s')) {
+                    newHeight = Math.max(minHeight, startHeight + deltaY);
+                } else if (resizeDirection.includes('n')) {
+                    newHeight = Math.max(minHeight, startHeight - deltaY);
+                    newTop = Math.min(windowHeight - minHeight, newTop + deltaY);
+                }
+                
+                // 更新面板位置和尺寸
+                chartPanel.style.width = newWidth + 'px';
+                chartPanel.style.height = newHeight + 'px';
+                
+                // 如果是左右两侧调整，更新位置
+                if (resizeDirection.includes('w')) {
+                    chartPanel.style.left = newLeft + 'px';
+                }
+                
+                // 如果是上下两侧调整，更新位置
+                if (resizeDirection.includes('n')) {
+                    chartPanel.style.top = newTop + 'px';
+                }
+                
+                // 确保不会超出视口边界
+                const finalLeft = parseFloat(chartPanel.style.left) || 0;
+                const finalTop = parseFloat(chartPanel.style.top) || 0;
+                const finalWidth = chartPanel.offsetWidth;
+                const finalHeight = chartPanel.offsetHeight;
+                
+                // 检查右侧边界
+                if (finalLeft + finalWidth > windowWidth) {
+                    chartPanel.style.left = (windowWidth - finalWidth) + 'px';
+                }
+                
+                // 检查底部边界
+                if (finalTop + finalHeight > windowHeight) {
+                    chartPanel.style.top = (windowHeight - finalHeight) + 'px';
+                }
+                
+                // 调整图表容器尺寸
+                chartDom.style.width = '100%';
+                chartDom.style.height = 'calc(100% - 30px)'; // 减去标题高度
+                
+                // 调整ECharts图表大小
+                myChart.resize();
+            }
+            
+            // 停止调整大小
+            function stopResize() {
+                if (!isResizing) return;
+                isResizing = false;
+                resizeDirection = null;
+                
+                // 移除事件监听
+                document.removeEventListener('mousemove', resize);
+                document.removeEventListener('mouseup', stopResize);
+                document.removeEventListener('mouseleave', stopResize);
+                
+                // 恢复视觉样式
+                    chartPanel.style.boxShadow = '';
+                    chartPanel.style.borderColor = 'transparent';
+                    chartPanel.style.borderWidth = '1px';
+                    chartPanel.style.transition = 'all 0.2s ease'; // 恢复过渡效果
+                
+                // 记录调整大小结束时间并计算性能
+                resizeEndTime = performance.now();
+                const resizeDuration = resizeEndTime - resizeStartTime;
+                logPerformance(`结束调整大小，总时长: ${resizeDuration.toFixed(2)}ms, 总帧数: ${resizeMoveCount}`);
+                
+                // 如果鼠标不在面板上，隐藏句柄
+                setTimeout(() => {
+                    if (!isResizing && !isDragging) {
+                        const rect = chartPanel.getBoundingClientRect();
+                        const mouseX = event.clientX;
+                        const mouseY = event.clientY;
+                        const isMouseOver = mouseX >= rect.left && mouseX <= rect.right && 
+                                          mouseY >= rect.top && mouseY <= rect.bottom;
+                        
+                        if (!isMouseOver && resizeHandles) {
+                            Object.values(resizeHandles).forEach(h => {
+                                h.style.opacity = '0';
+                            });
+                        }
+                    }
+                }, 100);
+            }
+            
+            // 初始化调整大小的句柄
+            resizeHandles = initResizeHandles();
+            
+            // 更新清理函数，添加调整大小句柄的清理
+            const originalCleanup = cleanup;
+            cleanup = function() {
+                originalCleanup();
+                
+                // 移除所有调整大小句柄
+                if (resizeHandles) {
+                    Object.values(resizeHandles).forEach(handle => {
+                        if (handle.parentNode) {
+                            handle.parentNode.removeChild(handle);
+                        }
+                    });
+                }
+                
+                // 移除调整大小相关的事件监听
+                document.removeEventListener('mousemove', resize);
+                document.removeEventListener('mouseup', stopResize);
+                document.removeEventListener('mouseleave', stopResize);
+            };
+            
+            // 更新图表实例的清理函数
+            myChart.cleanup = cleanup;
+            
+            // 使用传入的数据或模拟数据
+            let months, actualTemp, forecastTemp;
+            
+            if (data && data.months && data.actual_temp && data.forecast_temp) {
+                // 使用API返回的数据
+                months = data.months;
+                actualTemp = data.actual_temp;
+                forecastTemp = data.forecast_temp;
+            } else {
+                // 模拟数据
+                months = ['1月', '2月', '3月', '4月', '5月', '6月', '7月', '8月', '9月', '10月', '11月', '12月'];
+                actualTemp = [8, 10, 15, 20, 25, 28, 32, 31, 27, 22, 16, 10];
+                forecastTemp = [9, 11, 16, 21, 26, 29, 33, 32, 28, 23, 17, 11];
+            }
+            
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(0, 16, 66, 0.8)',
+                    borderColor: '#00f2fe',
+                    textStyle: { color: '#ffffff' }
+                },
+                legend: {
+                    data: ['实际气温', '预测气温'],
+                    textStyle: { color: '#ffffff' },
+                    top: 10
+                },
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '3%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    boundaryGap: false,
+                    data: months,
+                    axisLine: { lineStyle: { color: '#00f2fe' } },
+                    axisLabel: { color: '#ffffff' }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: '温度(°C)',
+                    nameTextStyle: { color: '#ffffff' },
+                    axisLine: { lineStyle: { color: '#00f2fe' } },
+                    axisLabel: { color: '#ffffff' },
+                    splitLine: { lineStyle: { color: 'rgba(0, 242, 254, 0.1)' } }
+                },
+                series: [
+                    {
+                        name: '实际气温',
+                        type: 'line',
+                        data: actualTemp,
+                        symbol: 'circle',
+                        symbolSize: 8,
+                        itemStyle: {
+                            color: '#00f2fe'
+                        },
+                        lineStyle: {
+                            width: 3,
+                            shadowColor: 'rgba(0, 242, 254, 0.5)',
+                            shadowBlur: 10
+                        },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(0, 242, 254, 0.3)' },
+                                { offset: 1, color: 'rgba(0, 242, 254, 0.05)' }
+                            ])
+                        }
+                    },
+                    {
+                        name: '预测气温',
+                        type: 'line',
+                        data: forecastTemp,
+                        symbol: 'circle',
+                        symbolSize: 8,
+                        itemStyle: {
+                            color: '#ff9800'
+                        },
+                        lineStyle: {
+                            width: 3,
+                            type: 'dashed',
+                            shadowColor: 'rgba(255, 152, 0, 0.5)',
+                            shadowBlur: 10
+                        }
+                    }
+                ]
+            };
+            
+            myChart.setOption(option);
+            
+            // 记录初始化完成时间
+            const initEndTime = performance.now();
+            const initDuration = initEndTime - initStartTime;
+            logPerformance(`省份温度图表初始化完成，总耗时: ${initDuration.toFixed(2)}ms`);
+            
+            // 添加浏览器兼容性测试标记
+            logPerformance(`浏览器信息: ${navigator.userAgent}`);
+            logPerformance(`屏幕分辨率: ${window.screen.width}x${window.screen.height}`);
+            logPerformance(`视口尺寸: ${window.innerWidth}x${window.innerHeight}`);
+            
+            // 添加鼠标滑动交互功能和动画效果（添加边界情况和异常处理）
+            // 重用已声明的变量，添加新的变量
+            let lastMoveX = 0;
+            let lastMoveY = 0;
+            let dragDistance = 0;
+            let dragSpeed = 0;
+            let momentumTimer = null;
+            let hasTouchSupport = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+            let isChartReady = false;
+            let lastValidCenter = [104.114129, 37.550339]; // 保存最后有效中心点，用于错误恢复
+            
+            // 合并动画配置
+            Object.assign(animationConfig, {
+                duration: 300, // 动画持续时间
+                easing: 'cubicOut', // 缓动函数，提供平滑的动画效果
+                momentumDuration: 600, // 惯性动画持续时间
+                maxMomentumSpeed: 10, // 最大惯性速度
+                friction: 0.9 // 摩擦系数，控制惯性衰减
+            });
+            
+            // 初始化动画相关配置 - 使用ECharts支持的缓动函数
+            option.animation = true;
+            option.animationDuration = animationConfig.duration;
+            option.animationEasing = animationConfig.easing;
+            option.animationDelay = 0;
+            option.animationDurationUpdate = animationConfig.duration;
+            option.animationEasingUpdate = animationConfig.easing;
+            
+            // 标准化事件处理函数
+            function normalizeEvent(e) {
+                // 处理触摸事件
+                if (e.touches && e.touches.length > 0) {
+                    return {
+                        offsetX: e.touches[0].clientX - e.touches[0].target.getBoundingClientRect().left,
+                        offsetY: e.touches[0].clientY - e.touches[0].target.getBoundingClientRect().top,
+                        originalEvent: e
+                    };
+                }
+                // 处理鼠标事件
+                return {
+                    offsetX: e.offsetX || e.layerX,
+                    offsetY: e.offsetY || e.layerY,
+                    originalEvent: e
+                };
+            }
+            
+            // 开始拖拽处理函数
+            function handleDragStart(e) {
+                try {
+                    // 验证图表实例是否有效
+                    if (!myChart || typeof myChart.getDom !== 'function') {
+                        console.warn('Chart instance is not valid for drag operation');
+                        return;
+                    }
+                    
+                    const normalizedEvent = normalizeEvent(e);
+                    isDragging = true;
+                    lastMoveX = normalizedEvent.offsetX;
+                    lastMoveY = normalizedEvent.offsetY;
+                    dragStartTime = Date.now();
+                    dragDistance = 0;
+                    dragSpeed = 0;
+                    
+                    // 清除可能存在的惯性动画
+                    if (momentumTimer) {
+                        clearTimeout(momentumTimer);
+                        momentumTimer = null;
+                    }
+                    
+                    // 阻止默认行为，避免浏览器滚动或文本选择
+                    if (normalizedEvent.originalEvent && normalizedEvent.originalEvent.preventDefault) {
+                        normalizedEvent.originalEvent.preventDefault();
+                    }
+                } catch (err) {
+                    console.error('Error during drag start:', err);
+                    isDragging = false;
+                    resetDragState();
+                }
+            }
+            
+            // 重置拖拽状态
+            function resetDragState() {
+                isDragging = false;
+                dragDistance = 0;
+                dragSpeed = 0;
+                if (momentumTimer) {
+                    clearTimeout(momentumTimer);
+                    momentumTimer = null;
+                }
+            }
+            
+            // 拖拽移动处理函数
+            function handleDragMove(e) {
+                try {
+                    if (isDragging && myChart) {
+                        const normalizedEvent = normalizeEvent(e);
+                        
+                        // 计算移动距离
+                        let moveX = normalizedEvent.offsetX - lastMoveX;
+                        let moveY = normalizedEvent.offsetY - lastMoveY;
+                        
+                        // 限制单次移动距离，防止快速滑动导致的异常
+                        const maxSingleMove = 200; // 限制单次最大移动距离
+                        moveX = Math.max(-maxSingleMove, Math.min(maxSingleMove, moveX));
+                        moveY = Math.max(-maxSingleMove, Math.min(maxSingleMove, moveY));
+                        
+                        // 累计拖动距离
+                        dragDistance += Math.sqrt(moveX * moveX + moveY * moveY);
+                        
+                        // 获取当前视图中心和缩放级别
+                        const currentCenter = option.geo && option.geo.center ? option.geo.center : lastValidCenter;
+                        const currentZoom = option.geo && option.geo.zoom ? option.geo.zoom : 1.2;
+                        
+                        // 根据缩放比例和移动距离计算新的中心点
+                        const lngDelta = -moveX / (currentZoom * 100);
+                        const latDelta = moveY / (currentZoom * 100);
+                        
+                        // 更新中心点（限制在中国地图范围内）
+                        const newCenter = [
+                            Math.max(73, Math.min(135, currentCenter[0] + lngDelta)),
+                            Math.max(18, Math.min(53, currentCenter[1] + latDelta))
+                        ];
+                        
+                        // 只有当中心点实际发生变化时才更新
+                        if (newCenter[0] !== currentCenter[0] || newCenter[1] !== currentCenter[1]) {
+                            // 确保geo对象存在
+                            if (!option.geo) {
+                                option.geo = {};
+                            }
+                            option.geo.center = newCenter;
+                            
+                            // 拖动时使用较短的动画时间，提供更流畅的体验
+                            try {
+                                myChart.setOption({
+                                    geo: {
+                                        center: newCenter,
+                                        animationDuration: 100,
+                                        animationEasing: animationConfig.easing
+                                    }
+                                });
+                                // 保存有效的中心点，用于错误恢复
+                                lastValidCenter = [...newCenter];
+                            } catch (err) {
+                                console.warn('Chart update error during drag:', err);
+                                // 恢复到最后一个有效中心点
+                                if (lastValidCenter) {
+                                    option.geo.center = [...lastValidCenter];
+                                }
+                            }
+                        }
+                        
+                        // 更新最后移动位置
+                        lastMoveX = normalizedEvent.offsetX;
+                        lastMoveY = normalizedEvent.offsetY;
+                        
+                        // 阻止默认行为
+                        if (normalizedEvent.originalEvent && normalizedEvent.originalEvent.preventDefault) {
+                            normalizedEvent.originalEvent.preventDefault();
+                        }
+                    }
+                } catch (err) {
+                    console.error('Error during drag move:', err);
+                    isDragging = false;
+                    resetDragState();
+                }
+            }
+            
+            // 注册事件监听器（兼容不同浏览器）
+            function registerEventListeners() {
+                const chartDom = myChart.getDom();
+                
+                // 鼠标事件 - 兼容所有现代浏览器
+                chartDom.addEventListener('mousedown', handleDragStart, { passive: false });
+                chartDom.addEventListener('mousemove', handleDragMove, { passive: false });
+                chartDom.addEventListener('mouseup', handleDragEnd, { passive: true });
+                chartDom.addEventListener('mouseout', function(e) {
+                    if (isDragging) handleDragEnd();
+                }, { passive: true });
+                
+                // 触摸事件支持（移动设备和触摸屏）
+                if (hasTouchSupport) {
+                    chartDom.addEventListener('touchstart', handleDragStart, { passive: false });
+                    chartDom.addEventListener('touchmove', handleDragMove, { passive: false });
+                    chartDom.addEventListener('touchend', handleDragEnd, { passive: true });
+                    chartDom.addEventListener('touchcancel', handleDragEnd, { passive: true });
+                }
+                
+                // 为ECharts实例添加事件监听（作为备份）
+                const zr = myChart.getZr ? myChart.getZr() : null;
+                if (zr && typeof zr.on === 'function') {
+                    try {
+                        zr.on('mousedown', handleDragStart);
+                        zr.on('mousemove', handleDragMove);
+                        zr.on('mouseup', handleDragEnd);
+                        zr.on('mouseout', function() { if (isDragging) handleDragEnd(); });
+                    } catch (err) {
+                        console.warn('Failed to register ZRender event listeners:', err);
+                    }
+                }
+            }
+            
+            // 注册事件监听器
+            registerEventListeners();
+            
+            // 处理拖拽结束，添加惯性动画
+            function handleDragEnd() {
+                try {
+                    // 计算拖拽时间
+                    const dragEndTime = Date.now();
+                    const dragTime = dragEndTime - dragStartTime;
+                    
+                    // 计算拖拽速度（仅当拖拽时间较短且距离足够时）
+                    if (dragTime > 50 && dragTime < 500 && dragDistance > 10) {
+                        // 限制最大速度
+                        dragSpeed = Math.min(
+                            animationConfig.maxMomentumSpeed,
+                            dragDistance / dragTime * 100
+                        );
+                        dragSpeed = Math.max(1, dragSpeed); // 确保最小速度
+                        
+                        // 添加惯性动画
+                        applyMomentum();
+                    }
+                } catch (err) {
+                    console.error('Error during drag end:', err);
+                } finally {
+                    isDragging = false;
+                }
+            }
+            
+            // 边界碰撞检测和回弹效果
+            function handleBoundaryCollision(center) {
+                // 定义边界范围
+                const bounds = { minLng: 73, maxLng: 135, minLat: 18, maxLat: 53 };
+                
+                // 检查是否超出边界
+                const isOutOfBounds = 
+                    center[0] < bounds.minLng || 
+                    center[0] > bounds.maxLng || 
+                    center[1] < bounds.minLat || 
+                    center[1] > bounds.maxLat;
+                
+                if (isOutOfBounds) {
+                    // 计算回弹中心点
+                    const reboundCenter = [
+                        Math.max(bounds.minLng, Math.min(bounds.maxLng, center[0])),
+                        Math.max(bounds.minLat, Math.min(bounds.maxLat, center[1]))
+                    ];
+                    
+                    // 应用回弹动画
+                    if (myChart) {
+                        try {
+                            myChart.setOption({
+                                geo: {
+                                    center: reboundCenter,
+                                    animationDuration: 300,
+                                    animationEasing: 'backOut'
+                                }
+                            });
+                        } catch (err) {
+                            console.warn('Rebound animation error:', err);
+                        }
+                    }
+                    
+                    return reboundCenter;
+                }
+                
+                return center;
+            }
+            
+            // 应用惯性动画
+            function applyMomentum() {
+                try {
+                    // 安全检查，确保geo和center存在
+                    if (dragSpeed <= 0 || !option.geo || !option.geo.center || !myChart) {
+                        cleanupMomentum();
+                        return;
+                    }
+                    
+                    // 计算惯性移动距离
+                    const momentumMoveX = lastMoveX * (dragSpeed / 100);
+                    const momentumMoveY = lastMoveY * (dragSpeed / 100);
+                    
+                    const currentZoom = option.geo.zoom || 1.2;
+                    const lngDelta = -momentumMoveX / (currentZoom * 100);
+                    const latDelta = momentumMoveY / (currentZoom * 100);
+                    
+                    // 计算新的中心点
+                    let newCenter = [
+                        option.geo.center[0] + lngDelta,
+                        option.geo.center[1] + latDelta
+                    ];
+                    
+                    // 处理边界碰撞
+                    newCenter = handleBoundaryCollision(newCenter);
+                    
+                    // 安全地应用惯性动画
+                    try {
+                        myChart.setOption({
+                            geo: {
+                                center: newCenter,
+                                animationDuration: animationConfig.momentumDuration,
+                                animationEasing: animationConfig.easing
+                            }
+                        });
+                        // 更新最后有效中心点
+                        lastValidCenter = [...newCenter];
+                        option.geo.center = [...newCenter];
+                    } catch (err) {
+                        console.warn('Chart update error during momentum:', err);
+                        // 恢复到最后一个有效中心点
+                        if (lastValidCenter && myChart) {
+                            try {
+                                myChart.setOption({
+                                    geo: {
+                                        center: lastValidCenter
+                                    }
+                                });
+                            } catch (recoveryErr) {
+                                console.error('Recovery from momentum error failed:', recoveryErr);
+                            }
+                        }
+                        cleanupMomentum();
+                        return;
+                    }
+                    
+                    // 衰减速度并安排下一帧惯性
+                    dragSpeed *= animationConfig.friction;
+                    
+                    // 检查是否继续惯性动画
+                    if (dragSpeed > 0.5) {
+                        // 使用防抖动的setTimeout调用
+                        momentumTimer = window.setTimeout(function() {
+                            // 再次检查dragSpeed，避免累积误差
+                            if (dragSpeed > 0.5) {
+                                applyMomentum();
+                            } else {
+                                cleanupMomentum();
+                            }
+                        }, 50);
+                    } else {
+                        cleanupMomentum();
+                    }
+                } catch (err) {
+                    console.error('Unexpected error in momentum animation:', err);
+                    cleanupMomentum();
+                }
+            }
+            
+            // 清理惯性相关资源
+            function cleanupMomentum() {
+                if (momentumTimer) {
+                    clearTimeout(momentumTimer);
+                    momentumTimer = null;
+                }
+                dragSpeed = 0;
+            }
+            
+            // 添加清理函数，防止内存泄漏
+            function cleanupEventListeners() {
+                try {
+                    // 清理DOM事件监听器
+                    const chartDom = myChart && typeof myChart.getDom === 'function' ? myChart.getDom() : null;
+                    if (chartDom) {
+                        // 安全地移除所有事件监听器
+                        try {
+                            chartDom.removeEventListener('mousedown', handleDragStart);
+                            chartDom.removeEventListener('mousemove', handleDragMove);
+                            chartDom.removeEventListener('mouseup', handleDragEnd);
+                            chartDom.removeEventListener('mouseout', handleDragEnd);
+                            
+                            if (hasTouchSupport) {
+                                chartDom.removeEventListener('touchstart', handleDragStart);
+                                chartDom.removeEventListener('touchmove', handleDragMove);
+                                chartDom.removeEventListener('touchend', handleDragEnd);
+                                chartDom.removeEventListener('touchcancel', handleDragEnd);
+                            }
+                        } catch (domErr) {
+                            console.warn('Error removing DOM event listeners:', domErr);
+                        }
+                    }
+                    
+                    // 清理ECharts ZRender事件监听器
+                    const zr = myChart && typeof myChart.getZr === 'function' ? myChart.getZr() : null;
+                    if (zr && typeof zr.off === 'function') {
+                        try {
+                            zr.off('mousedown', handleDragStart);
+                            zr.off('mousemove', handleDragMove);
+                            zr.off('mouseup', handleDragEnd);
+                            zr.off('mouseout', handleDragEnd);
+                        } catch (zrErr) {
+                            console.warn('Error removing ZRender event listeners:', zrErr);
+                        }
+                    }
+                    
+                    // 清理定时器和状态
+                    cleanupMomentum();
+                    resetDragState();
+                    
+                    // 从window移除清理事件
+                    window.removeEventListener('beforeunload', cleanupEventListeners);
+                    
+                } catch (err) {
+                    console.error('Error during event listener cleanup:', err);
+                }
+            }
+            
+            // 添加图表初始化状态检查
+            function checkChartInitStatus() {
+                try {
+                    if (myChart && typeof myChart.getOption === 'function') {
+                        const currentOption = myChart.getOption();
+                        if (currentOption && currentOption.geo) {
+                            isChartReady = true;
+                            // 初始化时保存有效的中心点
+                            if (currentOption.geo.center) {
+                                lastValidCenter = [...currentOption.geo.center];
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn('Chart initialization check failed:', err);
+                    isChartReady = false;
+                }
+            }
+            
+            // 初始化后立即检查图表状态
+            checkChartInitStatus();
+            
+            // 在组件卸载时清理事件监听器（通过window事件模拟）
+            window.addEventListener('beforeunload', cleanupEventListeners, { once: true });
+            
+            // 响应式调整（添加错误处理）
+            function handleResize() {
+                try {
+                    if (myChart && typeof myChart.resize === 'function') {
+                        myChart.resize();
+                    }
+                } catch (err) {
+                    console.warn('Error during chart resize:', err);
+                }
+            }
+            
+            // 使用防抖动的resize事件处理
+            let resizeTimer = null;
+            window.addEventListener('resize', function() {
+                if (resizeTimer) {
+                    clearTimeout(resizeTimer);
+                }
+                resizeTimer = setTimeout(handleResize, 100); // 100ms防抖动
+            });
+            
+            // 添加图表错误处理
+            if (myChart && typeof myChart.on === 'function') {
+                try {
+                    myChart.on('error', function(err) {
+                        console.error('ECharts error:', err);
+                        // 尝试恢复到安全状态
+                        if (lastValidCenter && !isDragging) {
+                            try {
+                                myChart.setOption({
+                                    geo: {
+                                        center: lastValidCenter
+                                    }
+                                });
+                            } catch (recoveryErr) {
+                                console.warn('Recovery from chart error failed:', recoveryErr);
+                            }
+                        }
+                    });
+                } catch (err) {
+                    console.warn('Failed to register chart error handler:', err);
+                }
+            }
+        }
+        
+        // 初始化中国地图图表
+        function initChinaMapChart(data = null) {
+            const chartDom = document.getElementById('china_map');
+            const myChart = echarts.init(chartDom);
+            
+            // 使用传入的数据或模拟数据
+            let mapData;
+            
+            if (data && data.map_data) {
+                // 使用API返回的数据
+                mapData = data.map_data;
+            } else {
+                // 模拟数据 - 温度和风速综合数据
+                mapData = [
+                    { name: '北京', value: 2, wind: 3.2 },
+                    { name: '上海', value: 5, wind: 2.8 },
+                    { name: '广东', value: 12, wind: 2.5 },
+                    { name: '浙江', value: 8, wind: 3.0 },
+                    { name: '江苏', value: 6, wind: 2.7 },
+                    { name: '四川', value: 4, wind: 2.3 },
+                    { name: '湖北', value: 3, wind: 2.9 },
+                    { name: '湖南', value: 7, wind: 2.4 },
+                    { name: '河南', value: 0, wind: 3.1 },
+                    { name: '河北', value: -1, wind: 3.3 },
+                    { name: '山东', value: 1, wind: 3.0 },
+                    { name: '山西', value: -2, wind: 3.5 },
+                    { name: '陕西', value: -3, wind: 3.2 },
+                    { name: '安徽', value: 4, wind: 2.8 },
+                    { name: '福建', value: 10, wind: 2.6 },
+                    { name: '江西', value: 8, wind: 2.5 },
+                    { name: '广西', value: 15, wind: 2.3 },
+                    { name: '海南', value: 18, wind: 2.2 },
+                    { name: '贵州', value: 6, wind: 2.4 },
+                    { name: '云南', value: 14, wind: 2.1 },
+                    { name: '重庆', value: 5, wind: 2.7 },
+                    { name: '天津', value: 1, wind: 3.2 },
+                    { name: '内蒙古', value: -10, wind: 4.5 },
+                    { name: '辽宁', value: -5, wind: 4.0 },
+                    { name: '吉林', value: -8, wind: 4.2 },
+                    { name: '黑龙江', value: -15, wind: 4.8 },
+                    { name: '西藏', value: -12, wind: 3.8 },
+                    { name: '青海', value: -18, wind: 3.5 },
+                    { name: '宁夏', value: -6, wind: 4.0 },
+                    { name: '甘肃', value: -8, wind: 3.7 },
+                    { name: '新疆', value: -20, wind: 4.3 },
+                    { name: '香港', value: 16, wind: 2.4 },
+                    { name: '澳门', value: 16, wind: 2.4 },
+                    { name: '台湾', value: 14, wind: 2.5 }
+                ];
+            }
+            
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: 'rgba(0, 16, 66, 0.9)',
+                    borderColor: '#00f2fe',
+                    borderWidth: 1,
+                    textStyle: { color: '#ffffff' },
+                    formatter: function(params) {
+                        if (params.seriesName === '温度分布') {
+                            return params.name + '<br/>' +
+                                   '平均温度: ' + params.value + '°C<br/>' +
+                                   '平均风速: ' + params.data.wind + 'm/s';
+                        } else {
+                            return params.name + '<br/>风速标记点';
+                        }
+                    }
+                },
+                // 温度图例
+                visualMap: [
+                    {
+                        type: 'piecewise',
+                        pieces: [
+                            { min: 25, label: '25°C以上', color: '#FF0000' },
+                            { min: 20, max: 24, label: '20-24°C', color: '#FF4500' },
+                            { min: 15, max: 19, label: '15-19°C', color: '#FF8C00' },
+                            { min: 10, max: 14, label: '10-14°C', color: '#FFD700' },
+                            { min: 5, max: 9, label: '5-9°C', color: '#90EE90' },
+                            { min: 0, max: 4, label: '0-4°C', color: '#00CED1' },
+                            { min: -5, max: -1, label: '-5--1°C', color: '#4169E1' },
+                            { max: -6, label: '-6°C以下', color: '#191970' }
+                        ],
+                        textStyle: { color: '#ffffff', fontSize: 10 },
+                        left: 'left',
+                        top: 'bottom',
+                        show: true
+                    }
+                ],
+                series: [
+                    {                        name: '温度分布',                        type: 'map',                        map: 'china',                        roam: true,                        zoom: 1.2,                        center: [104.114129, 37.550339],
+                        label: {
+                            show: true,
+                            color: '#ffffff',
+                            fontSize: 10,
+                            fontWeight: 'normal'
+                        },
+                        emphasis: {
+                            itemStyle: {
+                                areaColor: '#00f2fe',
+                                shadowOffsetX: 0,
+                                shadowOffsetY: 0,
+                                shadowBlur: 20,
+                                borderWidth: 0,
+                                shadowColor: 'rgba(0, 242, 254, 0.5)'
+                            },
+                            label: {
+                                show: true,
+                                color: '#001042',
+                                fontSize: 12,
+                                fontWeight: 'bold'
+                            }
+                        },
+                        select: {
+                            itemStyle: {
+                                areaColor: '#00f2fe'
+                            },
+                            label: {
+                                show: true,
+                                color: '#001042',
+                                fontWeight: 'bold'
+                            }
+                        },
+                        itemStyle: {
+                            areaColor: '#003366',
+                            borderColor: '#ffffff',
+                            borderWidth: 2,
+                            shadowBlur: 5,
+                            shadowColor: 'rgba(0, 242, 254, 0.3)'
+                        },
+                        data: mapData
+                    },
+                    {
+                        name: '风速标记',
+                        type: 'scatter',
+                        coordinateSystem: 'geo',
+                        data: mapData.map(function(item) {
+                            // 风速越大，标记点越大
+                            const symbolSize = Math.sqrt(item.wind) * 10;
+                            // 根据风速设置不同颜色
+                            let color;
+                            if (item.wind > 4) {
+                                color = '#FF4500'; // 强风 - 红色
+                            } else if (item.wind > 3) {
+                                color = '#FFA500'; // 中风 - 橙色
+                            } else {
+                                color = '#00f2fe'; // 微风 - 蓝色
+                            }
+                            return {
+                                name: item.name,
+                                value: [item.value, item.wind],
+                                symbolSize: symbolSize,
+                                itemStyle: { color: color }
+                            };
+                        }),
+                        itemStyle: {
+                            color: '#00f2fe',
+                            borderWidth: 1,
+                            borderColor: '#ffffff'
+                        },
+                        emphasis: {
+                            itemStyle: {
+                                color: '#ffffff',
+                                shadowBlur: 15,
+                                shadowColor: '#00f2fe'
+                            },
+                            label: {
+                                show: true,
+                                color: '#ffffff',
+                                formatter: function(params) {
+                                    return params.name + ': ' + params.data.value[1] + 'm/s';
+                                }
+                            }
+                        },
+                        // 添加发光效果
+                        effectScatter: {
+                            showEffectOn: 'render',
+                            rippleEffect: {
+                                brushType: 'stroke'
+                            }
+                        }
+                    }
+                ]
+            };
+            
+            myChart.setOption(option);
+            
+            // 响应式调整
+            window.addEventListener('resize', function() {
+                myChart.resize();
+            });
+        }
+        
+        // 初始化城市温度词云图
+        function initCityTempChart(data = null) {
+            const chartDom = document.getElementById('city_temp');
+            const myChart = echarts.init(chartDom);
+            
+            // 使用传入的数据或模拟数据
+            let wordData;
+            
+            if (data && data.city_temps) {
+                // 使用API返回的数据
+                wordData = data.city_temps;
+            } else {
+                // 模拟词云数据
+                wordData = [
+                    { name: '广州', value: 22 },
+                    { name: '深圳', value: 23 },
+                    { name: '海口', value: 25 },
+                    { name: '三亚', value: 26 },
+                    { name: '南宁', value: 20 },
+                    { name: '昆明', value: 18 },
+                    { name: '福州', value: 17 },
+                    { name: '厦门', value: 18 },
+                    { name: '上海', value: 12 },
+                    { name: '杭州', value: 10 },
+                    { name: '南京', value: 8 },
+                    { name: '武汉', value: 7 },
+                    { name: '成都', value: 9 },
+                    { name: '重庆', value: 10 },
+                    { name: '西安', value: 5 },
+                    { name: '北京', value: 2 },
+                    { name: '天津', value: 3 },
+                    { name: '沈阳', value: -3 },
+                    { name: '长春', value: -5 },
+                    { name: '哈尔滨', value: -10 },
+                    { name: '呼和浩特', value: -8 },
+                    { name: '乌鲁木齐', value: -15 },
+                    { name: '拉萨', value: -10 },
+                    { name: '西宁', value: -12 },
+                    { name: '兰州', value: -7 },
+                    { name: '银川', value: -6 },
+                    { name: '太原', value: -4 },
+                    { name: '石家庄', value: -2 },
+                    { name: '济南', value: 0 },
+                    { name: '郑州', value: 1 }
+                ];
+            }
+            
+            // 为词云设置颜色映射
+            const colorMap = {
+                hot: ['#FF0000', '#FF4500', '#FF8C00'],
+                warm: ['#FFD700', '#90EE90'],
+                cool: ['#00CED1', '#4169E1'],
+                cold: ['#191970', '#000080']
+            };
+            
+            // 根据温度分配颜色
+            const colorList = [];
+            wordData.forEach(item => {
+                if (item.value >= 20) {
+                    colorList.push(colorMap.hot[Math.floor(Math.random() * colorMap.hot.length)]);
+                } else if (item.value >= 10) {
+                    colorList.push(colorMap.warm[Math.floor(Math.random() * colorMap.warm.length)]);
+                } else if (item.value >= 0) {
+                    colorList.push(colorMap.cool[Math.floor(Math.random() * colorMap.cool.length)]);
+                } else {
+                    colorList.push(colorMap.cold[Math.floor(Math.random() * colorMap.cold.length)]);
+                }
+            });
+            
+            // 简单的词云实现（实际项目中建议使用官方的词云扩展）
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'item',
+                    backgroundColor: 'rgba(0, 16, 66, 0.8)',
+                    borderColor: '#00f2fe',
+                    textStyle: { color: '#ffffff' },
+                    formatter: function(params) {
+                        return params.name + ': ' + params.value + '°C';
+                    }
+                },
+                series: [{
+                    type: 'graph',
+                    layout: 'force',
+                    data: wordData.map((item, index) => ({
+                        name: item.name,
+                        value: item.value,
+                        symbolSize: Math.max(20, Math.min(Math.abs(item.value) * 2, 80)),
+                        category: item.value >= 20 ? 'hot' : item.value >= 10 ? 'warm' : item.value >= 0 ? 'cool' : 'cold',
+                        itemStyle: {
+                            color: colorList[index],
+                            borderColor: '#ffffff',
+                            borderWidth: 1
+                        },
+                        label: {
+                            show: true,
+                            color: '#ffffff',
+                            fontSize: Math.max(10, Math.min(Math.abs(item.value) * 0.8, 24)),
+                            fontWeight: 'bold'
+                        }
+                    })),
+                    categories: [
+                        { name: 'hot' },
+                        { name: 'warm' },
+                        { name: 'cool' },
+                        { name: 'cold' }
+                    ],
+                    roam: false,
+                    force: {
+                        repulsion: 100,
+                        edgeLength: [80, 150]
+                    },
+                    lineStyle: {
+                        color: 'source',
+                        curveness: 0.3,
+                        opacity: 0.3
+                    },
+                    emphasis: {
+                        focus: 'adjacency',
+                        lineStyle: {
+                            width: 4
+                        },
+                        itemStyle: {
+                            shadowBlur: 10,
+                            shadowColor: '#00f2fe'
+                        }
+                    }
+                }]
+            };
+            
+            myChart.setOption(option);
+            
+            // 响应式调整
+            window.addEventListener('resize', function() {
+                myChart.resize();
+            });
+        }
+        
+        // 初始化省份气压图表
+        function initProvincePressureChart(data = null) {
+            const chartDom = document.getElementById('province_pressure');
+            const myChart = echarts.init(chartDom);
+            
+            // 使用传入的数据或模拟数据
+            let provinces, pressures;
+            
+            if (data && data.provinces && data.pressures) {
+                // 使用API返回的数据
+                provinces = data.provinces;
+                pressures = data.pressures;
+            } else {
+                // 模拟数据
+                provinces = ['内蒙古', '青海', '新疆', '西藏', '甘肃', '宁夏', '山西', '陕西', '河北', '北京', '天津', '山东', '河南', '安徽', '江苏', '上海', '浙江', '江西', '福建', '台湾', '湖北', '湖南', '广东', '广西', '海南', '重庆', '四川', '贵州', '云南'];
+                pressures = [1025, 1022, 1020, 1015, 1018, 1020, 1016, 1014, 1017, 1018, 1019, 1015, 1013, 1012, 1010, 1009, 1008, 1007, 1006, 1005, 1011, 1009, 1004, 1003, 1000, 1010, 1012, 1005, 1002];
+            }
+            
+            // 为气压值设置颜色
+            const colors = [];
+            pressures.forEach(pressure => {
+                if (pressure >= 1020) colors.push('#191970');
+                else if (pressure >= 1015) colors.push('#4169E1');
+                else if (pressure >= 1010) colors.push('#00CED1');
+                else if (pressure >= 1005) colors.push('#90EE90');
+                else colors.push('#FFD700');
+            });
+            
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'shadow'
+                    },
+                    backgroundColor: 'rgba(0, 16, 66, 0.8)',
+                    borderColor: '#00f2fe',
+                    textStyle: { color: '#ffffff' },
+                    formatter: function(params) {
+                        return params[0].name + '<br/>气压: ' + params[0].value + ' hPa';
+                    }
+                },
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '15%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    data: provinces,
+                    axisLine: { lineStyle: { color: '#00f2fe' } },
+                    axisLabel: {
+                        color: '#ffffff',
+                        rotate: 45,
+                        interval: 0,
+                        fontSize: 10
+                    }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: '气压(hPa)',
+                    nameTextStyle: { color: '#ffffff' },
+                    axisLine: { lineStyle: { color: '#00f2fe' } },
+                    axisLabel: { color: '#ffffff' },
+                    splitLine: { lineStyle: { color: 'rgba(0, 242, 254, 0.1)' } }
+                },
+                series: [
+                    {
+                        type: 'bar',
+                        data: pressures.map((value, index) => ({
+                            value: value,
+                            itemStyle: {
+                                color: colors[index],
+                                borderColor: '#00f2fe',
+                                borderWidth: 1
+                            }
+                        })),
+                        barWidth: '60%',
+                        emphasis: {
+                            itemStyle: {
+                                shadowBlur: 10,
+                                shadowColor: '#00f2fe'
+                            }
+                        },
+                        label: {
+                            show: true,
+                            position: 'top',
+                            color: '#ffffff',
+                            fontSize: 9,
+                            formatter: function(params) {
+                                return params.value;
+                            }
+                        }
+                    }
+                ]
+            };
+            
+            myChart.setOption(option);
+            
+            // 响应式调整
+            window.addEventListener('resize', function() {
+                myChart.resize();
+            });
+        }
+        
+        // 初始化城市降水量排名图表
+        function initCityPrecipitationChart(data = null) {
+            const chartDom = document.getElementById('city_precipitation_top10');
+            const myChart = echarts.init(chartDom);
+            
+            // 使用传入的数据或模拟数据
+            let cities, precipitations;
+            
+            if (data && data.cities && data.precipitations) {
+                // 使用API返回的数据
+                cities = data.cities;
+                precipitations = data.precipitations;
+            } else {
+                // 模拟数据 - 降水量排名
+                cities = ['台北', '广州', '厦门', '福州', '杭州', '上海', '成都', '武汉', '南京', '重庆'];
+                precipitations = [182, 165, 155, 140, 130, 125, 110, 105, 95, 90];
+            }
+            
+            const option = {
+                backgroundColor: 'transparent',
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'shadow'
+                    },
+                    backgroundColor: 'rgba(0, 16, 66, 0.8)',
+                    borderColor: '#00f2fe',
+                    textStyle: { color: '#ffffff' },
+                    formatter: function(params) {
+                        return params[0].name + '<br/>降水量: ' + params[0].value + ' mm';
+                    }
+                },
+                grid: {
+                    left: '15%',
+                    right: '4%',
+                    bottom: '3%',
+                    top: '3%',
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'value',
+                    name: '降水量(mm)',
+                    nameTextStyle: { color: '#ffffff' },
+                    axisLine: { lineStyle: { color: '#00f2fe' } },
+                    axisLabel: { color: '#ffffff' },
+                    splitLine: { lineStyle: { color: 'rgba(0, 242, 254, 0.1)' } }
+                },
+                yAxis: {
+                    type: 'category',
+                    data: cities,
+                    axisLine: { lineStyle: { color: '#00f2fe' } },
+                    axisLabel: { color: '#ffffff' }
+                },
+                series: [
+                    {
+                        type: 'bar',
+                        data: precipitations.map((value, index) => ({
+                            value: value,
+                            itemStyle: {
+                                color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                                    { offset: 0, color: 'rgba(0, 100, 255, 0.3)' },
+                                    { offset: 1, color: 'rgba(0, 242, 254, 0.8)' }
+                                ]),
+                                borderColor: '#00f2fe',
+                                borderWidth: 1
+                            }
+                        })),
+                        barWidth: '60%',
+                        emphasis: {
+                            itemStyle: {
+                                color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                                    { offset: 0, color: 'rgba(0, 100, 255, 0.5)' },
+                                    { offset: 1, color: 'rgba(0, 242, 254, 1)' }
+                                ]),
+                                shadowBlur: 10,
+                                shadowColor: '#00f2fe'
+                            }
+                        },
+                        label: {
+                            show: true,
+                            position: 'right',
+                            color: '#ffffff',
+                            formatter: function(params) {
+                                return params.value + ' mm';
+                            }
+                        }
+                    }
+                ]
+            };
+            
+            myChart.setOption(option);
+            
+            // 响应式调整
+            window.addEventListener('resize', function() {
+                myChart.resize();
+            });
+        }
+    </script>
+</body>
+</html>
